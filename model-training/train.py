@@ -6,6 +6,13 @@ import importlib
 
 #local 
 channel_path = f"{Path.cwd()}"
+<<<<<<< HEAD
+=======
+
+# uncomment next line when run in aws sagemaker
+#channel_path = '/opt/ml'
+
+>>>>>>> 655cea0 (Refacto to separate training and testing)
 data_channel_path = f"{channel_path}/input/data/train"
 model_channel_path = f"{channel_path}/model/joblib"
 
@@ -33,6 +40,7 @@ def train_item(model_fqdn, train_csv_file, y_field, features ):
     print(f"Model dumped in {joblib_file}")    
     return model
 
+<<<<<<< HEAD
     
 def test_item( model_fqdn, train_csv_file, y_field, features, test_csv_file ):    
 
@@ -54,6 +62,8 @@ def test_item( model_fqdn, train_csv_file, y_field, features, test_csv_file ):
     rmse = mse ** 0.5
     r2 = r2_score(y, test_preds)
     print(f"MAE={mae}, MSE={mse}, RMSE={rmse}, R2={r2}")    
+=======
+>>>>>>> 655cea0 (Refacto to separate training and testing)
 
 def train():
 
@@ -79,6 +89,7 @@ def train():
     model_fqdn = 'sklearn.ensemble.RandomForestRegressor'
     train_item(model_fqdn, train_csv_file, y_field, features)
 
+<<<<<<< HEAD
 def test():
 
     #house prices
@@ -98,3 +109,10 @@ if __name__ == "__main__":
 
     #train()
     test()
+=======
+
+if __name__ == "__main__":
+
+    train()
+    
+>>>>>>> 655cea0 (Refacto to separate training and testing)
