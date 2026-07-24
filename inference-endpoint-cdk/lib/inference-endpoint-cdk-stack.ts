@@ -6,6 +6,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as cloudtrail from "aws-cdk-lib/aws-cloudtrail";
 
 export class InferenceEndpointCdk extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -56,6 +57,11 @@ export class InferenceEndpointCdk extends cdk.Stack {
       iam.ManagedPolicy.fromAwsManagedPolicyName(
         "service-role/AmazonECSTaskExecutionRolePolicy"
       )
+    );
+
+    // ⭐ Required for ECS Exec (SSM)
+    executionRole.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")
     );
 
     // ------------------------------------------------------------
@@ -117,6 +123,7 @@ export class InferenceEndpointCdk extends cdk.Stack {
       vpcSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
       },
+      enableExecuteCommand: true, // ⭐ Enable ECS Exec
     });
 
     // ------------------------------------------------------------
@@ -133,16 +140,15 @@ export class InferenceEndpointCdk extends cdk.Stack {
     // ------------------------------------------------------------
     // Target Group
     // ------------------------------------------------------------
-  
     const targetGroup = new elbv2.NetworkTargetGroup(this, "InferenceTG", {
       vpc,
       port: 8000,
-      protocol: elbv2.Protocol.TCP,   // ⭐ NLB requires TCP here
+      protocol: elbv2.Protocol.TCP,
       targetType: elbv2.TargetType.IP,
       healthCheck: {
         path: "/health",
         port: "8000",
-        protocol: elbv2.Protocol.HTTP,   // ⭐ HTTP health checks ARE allowed
+        protocol: elbv2.Protocol.HTTP,
         healthyThresholdCount: 2,
         unhealthyThresholdCount: 2,
         interval: cdk.Duration.seconds(15),
@@ -150,7 +156,6 @@ export class InferenceEndpointCdk extends cdk.Stack {
       },
     });
 
-    // Deregistration delay
     targetGroup.setAttribute(
       "deregistration_delay.timeout_seconds",
       "10"
@@ -186,7 +191,6 @@ export class InferenceEndpointCdk extends cdk.Stack {
       },
     });
 
-    // /predict
     const predict = api.root.addResource("predict");
 
     predict.addMethod(
@@ -202,7 +206,6 @@ export class InferenceEndpointCdk extends cdk.Stack {
       })
     );
 
-    // /health passthrough
     const health = api.root.addResource("health");
 
     health.addMethod(
@@ -220,6 +223,14 @@ export class InferenceEndpointCdk extends cdk.Stack {
 
     new cdk.CfnOutput(this, "InferenceUrl", {
       value: `${api.url}predict`,
+    });
+
+    // ------------------------------------------------------------
+    // ⭐ CloudTrail — logs ECS actions (RunTask, StopTask, Exec, UpdateService)
+    // ------------------------------------------------------------
+    new cloudtrail.Trail(this, "EcsActionTrail", {
+      isMultiRegionTrail: true,
+      managementEvents: cloudtrail.ReadWriteType.ALL,
     });
   }
 }
