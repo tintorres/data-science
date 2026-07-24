@@ -64,6 +64,20 @@ export class InferenceEndpointCdk extends cdk.Stack {
       iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")
     );
 
+   // ⭐ Required for ECS Exec (SSM) 
+    executionRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel",
+        ],
+        resources: ["*"],
+      })
+    );
+
     // ------------------------------------------------------------
     // Explicit CloudWatch Log Group
     // ------------------------------------------------------------
@@ -86,6 +100,20 @@ export class InferenceEndpointCdk extends cdk.Stack {
       },
     });
 
+    // ⭐ Required for ECS Exec (SSM) — TASK ROLE
+    taskDef.taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel",
+        ],
+        resources: ["*"],
+      })
+    );
+
     // Container
     taskDef.addContainer("InferenceContainer", {
       image: ecs.ContainerImage.fromRegistry(
@@ -96,6 +124,13 @@ export class InferenceEndpointCdk extends cdk.Stack {
         logGroup: logGroup,
       }),
       portMappings: [{ containerPort: 8000 }],
+      healthCheck: {
+        command: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+        interval: cdk.Duration.seconds(15),
+        timeout: cdk.Duration.seconds(5),
+        retries: 3,
+        startPeriod: cdk.Duration.seconds(10),
+      },
     });
 
     // ------------------------------------------------------------
