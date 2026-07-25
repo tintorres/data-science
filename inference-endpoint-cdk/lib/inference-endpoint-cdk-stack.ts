@@ -74,6 +74,13 @@ export class InferenceEndpointCdk extends cdk.Stack {
       'Allow traffic from NLB to container port 8000',
     );
 
+    // ✅ ADD THIS — NLB health checks originate from NLB node IPs in the VPC, not from the SG
+    taskSecurityGroup.addIngressRule(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),  // 10.0.0.0/16
+      ec2.Port.tcp(8000),
+      'Allow NLB health check traffic from VPC CIDR',
+    );
+
     // ================================================================
     // 3. ECS Cluster with Container Insights enabled
     // ================================================================
@@ -149,6 +156,7 @@ export class InferenceEndpointCdk extends cdk.Stack {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
+      
     });
 
     // ================================================================
@@ -233,6 +241,7 @@ export class InferenceEndpointCdk extends cdk.Stack {
     // ================================================================
     const fargateService = new ecs.FargateService(this, 'InferenceService', {
       cluster,
+      serviceName: 'InferenceEndpointCdk-InferenceService',
       taskDefinition,
       desiredCount: 1,
       securityGroups: [taskSecurityGroup],
@@ -259,6 +268,7 @@ export class InferenceEndpointCdk extends cdk.Stack {
 
       minHealthyPercent: 50,
       maxHealthyPercent: 200,
+      enableExecuteCommand: true, // allows `aws ecs execute-command` for debugging
     });
 
     // Register Fargate tasks with the NLB target group
