@@ -6,6 +6,8 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'; 
 
 export class InferenceEndpointCdk extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -94,9 +96,8 @@ export class InferenceEndpointCdk extends cdk.Stack {
     // 4. CloudWatch Log Group
     //    RETAIN on destroy so logs survive a `cdk destroy`
     // ================================================================
-    const logGroup = new logs.LogGroup(this, 'InferenceLogGroup', {
-      logGroupName: '/ecs/inference-service',
-      retention: logs.RetentionDays.ONE_MONTH,
+    const logGroup = new logs.LogGroup(this, 'InferenceLogGroup', {      
+      retention: logs.RetentionDays.THREE_DAYS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -274,15 +275,36 @@ export class InferenceEndpointCdk extends cdk.Stack {
     // Register Fargate tasks with the NLB target group
     fargateService.attachToNetworkTargetGroup(targetGroup);
 
+     const distribution = new cloudfront.Distribution(this, 'InferenceDistribution', {
+      defaultBehavior: {
+        origin: new origins.HttpOrigin(
+          nlb.loadBalancerDnsName,   // ✅ correct property on NLB construct
+          {
+            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+            httpPort: 80,
+          }
+        ),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+      },
+    });
+
     // ================================================================
     // 12. Stack Outputs
     // ================================================================
+      // Replace your existing InferenceEndpointUrl output with:
     new cdk.CfnOutput(this, 'InferenceEndpointUrl', {
-      value: `http://${nlb.loadBalancerDnsName}`,
-      description: 'Inference endpoint URL via NLB',
-      exportName: 'InferenceEndpointUrl',
+      value: `https://${distribution.distributionDomainName}`,  // ✅ now HTTPS
+      description: 'CloudFront HTTPS URL',
     });
 
+    new cdk.CfnOutput(this, 'NlbUrl', {
+      value: `http://${nlb.loadBalancerDnsName}`,
+      description: 'NLB HTTP URL (internal)',
+    });
+    
     new cdk.CfnOutput(this, 'EcsClusterName', {
       value: cluster.clusterName,
       description: 'ECS Cluster Name',
@@ -292,5 +314,6 @@ export class InferenceEndpointCdk extends cdk.Stack {
       value: logGroup.logGroupName,
       description: 'CloudWatch Log Group for container logs',
     });
+
   }
 }
