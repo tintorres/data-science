@@ -39,43 +39,42 @@ export class InferenceEndpointCdk extends cdk.Stack {
     // 2. Security Groups
     // ================================================================
 
-    // --- NLB Security Group ---
-    // ✅ FIX: Previously had NO inbound rules and a broken ICMP egress.
-    //         Now has proper inbound (port 80) and egress (port 8000 to VPC).
-    const nlbSecurityGroup = new ec2.SecurityGroup(this, 'InferenceNlbSecurityGroup', {
+    // --- ALB Security Group ---
+    const albSecurityGroup = new ec2.SecurityGroup(this, 'InferenceAlbSecurityGroup', {
       vpc,
-      description: 'Security group for Inference NLB',
-      allowAllOutbound: false, // explicit egress only
+      description: 'Security group for Inference ALB',
+      allowAllOutbound: false,
     });
 
     // Allow inbound HTTP from internet
-    nlbSecurityGroup.addIngressRule(
+    albSecurityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.tcp(80),
       'Allow HTTP inbound from internet',
     );
 
-    // Allow NLB to forward to ECS tasks on port 8000
-    nlbSecurityGroup.addEgressRule(
+    // Allow ALB to forward to ECS tasks on port 8000
+    albSecurityGroup.addEgressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),
       ec2.Port.tcp(8000),
-      'Allow NLB to forward to ECS tasks on port 8000',
+      'Allow ALB to forward to ECS tasks on port 8000',
     );
 
     // --- ECS Task Security Group ---
     const taskSecurityGroup = new ec2.SecurityGroup(this, 'InferenceTaskSecurityGroup', {
       vpc,
       description: 'Security group for Inference ECS Fargate tasks',
-      allowAllOutbound: true, // tasks need outbound for ECR, CloudWatch, etc.
+      allowAllOutbound: true,
     });
 
-    // Allow inbound on port 8000 only from the NLB security group
+    // Allow inbound on port 8000 only from the ALB security group
     taskSecurityGroup.addIngressRule(
-      ec2.Peer.securityGroupId(nlbSecurityGroup.securityGroupId),
+      ec2.Peer.securityGroupId(albSecurityGroup.securityGroupId),
       ec2.Port.tcp(8000),
-      'Allow traffic from NLB to container port 8000',
+      'Allow traffic from ALB to container port 8000',
     );
 
+    // ALB health checks come from the ALB SG itself, no VPC CIDR rule needed ✅
     // ✅ ADD THIS — NLB health checks originate from NLB node IPs in the VPC, not from the SG
     taskSecurityGroup.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),  // 10.0.0.0/16
@@ -197,26 +196,24 @@ export class InferenceEndpointCdk extends cdk.Stack {
     });
 
     // ================================================================
-    // 9. Network Load Balancer
-    //    ✅ FIX 2 — NLB now has a proper security group with inbound +
-    //    egress rules (previously: no inbound, broken ICMP egress)
+    // 9. Application Load Balancer
     // ================================================================
-    const nlb = new elbv2.NetworkLoadBalancer(this, 'InferenceNlb', {
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'InferenceAlb', {
       vpc,
       internetFacing: true,
-      securityGroups: [nlbSecurityGroup],
+      securityGroup: albSecurityGroup,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
     });
 
     // ================================================================
     // 10. Target Group with HTTP health checks on /health
     // ================================================================
-    const targetGroup = new elbv2.NetworkTargetGroup(this, 'InferenceTargetGroup', {
+    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'InferenceTargetGroup', {
       vpc,
       port: 8000,
-      protocol: elbv2.Protocol.TCP,
+      protocol: elbv2.ApplicationProtocol.HTTP,
       targetType: elbv2.TargetType.IP,
-      deregistrationDelay: cdk.Duration.seconds(30), // faster task replacement
+      deregistrationDelay: cdk.Duration.seconds(30),
       healthCheck: {
         enabled: true,
         protocol: elbv2.Protocol.HTTP,
@@ -230,10 +227,10 @@ export class InferenceEndpointCdk extends cdk.Stack {
       },
     });
 
-    // NLB Listener on port 80 → forward to target group
-    nlb.addListener('InferenceListener', {
+    // ALB Listener on port 80 → forward to target group
+    alb.addListener('InferenceListener', {
       port: 80,
-      protocol: elbv2.Protocol.TCP,
+      protocol: elbv2.ApplicationProtocol.HTTP,
       defaultTargetGroups: [targetGroup],
     });
 
@@ -241,44 +238,37 @@ export class InferenceEndpointCdk extends cdk.Stack {
     // 11. Fargate Service
     // ================================================================
     const fargateService = new ecs.FargateService(this, 'InferenceService', {
-      cluster,
-      serviceName: 'InferenceEndpointCdk-InferenceService',
-      taskDefinition,
-      desiredCount: 1,
-      securityGroups: [taskSecurityGroup],
-      assignPublicIp: false, // tasks stay in private subnets
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        cluster,
+        serviceName: 'InferenceEndpointCdk-InferenceService',
+        taskDefinition,
+        desiredCount: 1,
+        securityGroups: [taskSecurityGroup],
+        assignPublicIp: false,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        healthCheckGracePeriod: cdk.Duration.seconds(120),
+        circuitBreaker: {
+          enable: true,
+          rollback: true,
+        },
+        deploymentController: {
+          type: ecs.DeploymentControllerType.ECS,
+        },
+        minHealthyPercent: 50,
+        maxHealthyPercent: 200,
+        enableExecuteCommand: true,
+      });
 
-      // ✅ FIX 3 — healthCheckGracePeriod: 60s → 120s
-      //    Must be >= startPeriod so the NLB doesn't deregister the task
-      //    before the container has had a chance to pass its first health check.
-      healthCheckGracePeriod: cdk.Duration.seconds(120),
+      // Attach ECS service to ALB target group
+      fargateService.attachToApplicationTargetGroup(targetGroup);
 
-      // ✅ FIX 4 — Circuit breaker with rollback
-      //    Prevents infinite restart loops. If the new task revision keeps
-      //    failing health checks, ECS will automatically roll back to the
-      //    last known-good task definition revision.
-      circuitBreaker: {
-        enable: true,
-        rollback: true,
-      },
-
-      deploymentController: {
-        type: ecs.DeploymentControllerType.ECS,
-      },
-
-      minHealthyPercent: 50,
-      maxHealthyPercent: 200,
-      enableExecuteCommand: true, // allows `aws ecs execute-command` for debugging
-    });
-
-    // Register Fargate tasks with the NLB target group
-    fargateService.attachToNetworkTargetGroup(targetGroup);
+    // ================================================================
+    // 12. CLoudFront Distribution in front of the ALB
+    // ================================================================
 
      const distribution = new cloudfront.Distribution(this, 'InferenceDistribution', {
       defaultBehavior: {
         origin: new origins.HttpOrigin(
-          nlb.loadBalancerDnsName,   // ✅ correct property on NLB construct
+          alb.loadBalancerDnsName,   // ✅ correct property on ALB construct
           {
             protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
             httpPort: 80,
@@ -300,9 +290,9 @@ export class InferenceEndpointCdk extends cdk.Stack {
       description: 'CloudFront HTTPS URL',
     });
 
-    new cdk.CfnOutput(this, 'NlbUrl', {
-      value: `http://${nlb.loadBalancerDnsName}`,
-      description: 'NLB HTTP URL (internal)',
+    new cdk.CfnOutput(this, 'AlbDnsName', {
+      value: alb.loadBalancerDnsName,
+      description: 'ALB DNS Name',
     });
     
     new cdk.CfnOutput(this, 'EcsClusterName', {
