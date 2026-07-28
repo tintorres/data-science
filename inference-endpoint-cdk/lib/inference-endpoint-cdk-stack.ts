@@ -75,11 +75,10 @@ export class InferenceEndpointCdk extends cdk.Stack {
     );
 
     // ALB health checks come from the ALB SG itself, no VPC CIDR rule needed ✅
-    // ✅ ADD THIS — NLB health checks originate from NLB node IPs in the VPC, not from the SG
     taskSecurityGroup.addIngressRule(
       ec2.Peer.ipv4(vpc.vpcCidrBlock),  // 10.0.0.0/16
       ec2.Port.tcp(8000),
-      'Allow NLB health check traffic from VPC CIDR',
+      'Allow ALB health check traffic from VPC CIDR',
     );
 
     // ================================================================
@@ -88,7 +87,6 @@ export class InferenceEndpointCdk extends cdk.Stack {
     const cluster = new ecs.Cluster(this, 'InferenceCluster', {
       clusterName: 'InferenceCluster',
       vpc,
-      containerInsights: true, // enables CloudWatch Container Insights
     });
 
     // ================================================================
