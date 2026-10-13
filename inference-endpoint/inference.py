@@ -10,7 +10,7 @@ Instrumentator().instrument(app).expose(app)
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the Inference API"}
+    return {"message": "Welcome to the Inference API ver 0.2"}
 
 @app.get("/health")
 def health_check():
