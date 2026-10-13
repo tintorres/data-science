@@ -1,12 +1,5 @@
-# data-science
-Data Science Exercises
-
-## Installation - local
-* `Python` brew install python3.10
-* `Dependencies` pip install boto3 botocore numpy pandas scikit-learn joblib requests
-* `venv`  /opt/homebrew/opt/python@3.10/bin/python3.10 -m venv venv310
-* `activate` source venv310/bin/activate
-* `deactivate` deactivate
+# Model Training
+Model Training and Unit testing
 
 ## Installation - AWS Sagemaker
 * `Sagemaker aws on python3.12` pip install "sagemaker==2.197.0" --force-reinstall
