@@ -220,3 +220,10 @@ __marimo__/
 
 # custom
 venv310/
+.DS_Store
+.github/
+.vscode/
+model-training/MANIFEST.in
+model-training/output/
+model-training/setup.cfg
+model-training/setup.py
