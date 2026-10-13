@@ -2,9 +2,11 @@
 import joblib
 from fastapi import FastAPI
 import numpy as np
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI()
 model = joblib.load("model.joblib")
+Instrumentator().instrument(app).expose(app)
 
 @app.get("/")
 def read_root():

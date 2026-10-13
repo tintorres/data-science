@@ -3,3 +3,5 @@ uvicorn
 numpy
 scikit-learn
 joblib
+prometheus-client
+prometheus-fastapi-instrumentator
