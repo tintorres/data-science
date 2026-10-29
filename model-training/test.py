@@ -100,6 +100,6 @@ def test_endpoint( nrows: int):
 
 if __name__ == "__main__":
     
-    test()
+    #test()
     #generate_request_json_file( 2 )
-    #test_endpoint( 1 )
+    test_endpoint( 5 )

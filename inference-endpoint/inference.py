@@ -3,6 +3,7 @@ import joblib
 from fastapi import FastAPI
 import numpy as np
 from prometheus_fastapi_instrumentator import Instrumentator
+import os
 
 app = FastAPI()
 model = joblib.load("model.joblib")
@@ -15,6 +16,12 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/pod")
+def pod():
+    return {       
+        "hostname": os.getenv("HOSTNAME") if os.getenv("HOSTNAME") is not None else "unknown",
+        "status": "ok"}
 
 @app.post("/predict")
 def predict(payload: dict):
